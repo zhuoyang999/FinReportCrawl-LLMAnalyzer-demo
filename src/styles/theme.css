@@ -1,0 +1,25 @@
+:root {
+  --brand-primary: #0d5f9a;
+  --brand-primary-dark: #0b4272;
+
+  /* Bootstrap theme variables */
+  --bs-primary: #0d5f9a;
+  --bs-border-radius: 8px;
+  --bs-border-radius-sm: 8px;
+  --bs-border-radius-lg: 12px;
+  --bs-body-font-size: 14px;
+}
+
+html, body, #app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f4f6f8;
+}
+
+/* Optional dark mode surface */
+.dark body {
+  background: #121212;
+}

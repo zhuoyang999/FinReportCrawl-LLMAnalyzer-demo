@@ -1,0 +1,23 @@
+# Web 框架和服务器
+fastapi>=0.100.0
+uvicorn>=0.23.2
+pydantic>=2.4.2
+requests>=2.31.0
+
+# PDF 处理库
+pdfplumber>=0.9.0
+PyPDF2>=3.0.1
+pdfminer.six>=20221105
+
+# 数据处理库
+pandas>=2.0.0
+numpy>=1.24.0
+
+# 数据库相关
+SQLAlchemy>=2.0.0
+PyMySQL>=1.1.0
+mysql-connector-python>=8.1.0
+
+# 其他工具库
+python-dateutil>=2.8.2
+openpyxl>=3.1.0
