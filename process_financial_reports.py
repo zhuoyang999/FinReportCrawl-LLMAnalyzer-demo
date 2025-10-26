@@ -28,6 +28,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from data_processor.pdf_parser import FinancialReportParser
 from data_processor.database_manager import DatabaseManager
+from data_processor.knowledge_base_manager import KnowledgeBaseManager
 
 # 配置日志
 logging.basicConfig(
@@ -72,6 +73,15 @@ class FinancialReportProcessor:
         # 初始化 PDF 解析器
         self.pdf_parser = FinancialReportParser()
         
+        # 初始化知识库管理器
+        try:
+            self.knowledge_base_manager = KnowledgeBaseManager()
+            logger.info("知识库管理器初始化成功")
+        except Exception as e:
+            logger.error(f"知识库管理器初始化失败：{str(e)}")
+            # 即使知识库初始化失败，也允许继续执行，只记录错误
+            self.knowledge_base_manager = None
+
         # 初始化数据库管理器
         try:
             self.db_manager = DatabaseManager(
@@ -121,6 +131,19 @@ class FinancialReportProcessor:
             if success:
                 logger.info("数据存储成功")
                 
+                # 将处理过的PDF添加到知识库
+                if self.knowledge_base_manager:
+                    logger.info("正在将PDF内容添加到知识库...")
+                    # 我们需要遍历目录下的所有PDF文件
+                    for root, _, files in os.walk(pdf_directory):
+                        for file in files:
+                            if file.lower().endswith('.pdf'):
+                                pdf_path = os.path.join(root, file)
+                                try:
+                                    self.knowledge_base_manager.add_pdf_to_collection(pdf_path, collection_name="financial_reports")
+                                except Exception as e:
+                                    logger.error(f"无法将 {pdf_path} 添加到知识库: {e}")
+                
                 # 显示数据库统计信息
                 self._show_database_statistics()
                 
@@ -161,6 +184,13 @@ class FinancialReportProcessor:
             
             if success:
                 logger.info("数据存储成功")
+                # 将处理过的PDF添加到知识库
+                if self.knowledge_base_manager:
+                    logger.info("正在将PDF内容添加到知识库...")
+                    try:
+                        self.knowledge_base_manager.add_pdf_to_collection(pdf_path, collection_name="financial_reports")
+                    except Exception as e:
+                        logger.error(f"无法将 {pdf_path} 添加到知识库: {e}")
                 return True
             else:
                 logger.error("数据存储失败")
