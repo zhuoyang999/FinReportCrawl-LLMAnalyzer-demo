@@ -29,24 +29,52 @@ class FinancialReportParser:
     
     def __init__(self):
         """初始化解析器"""
-        # 关键财务指标的正则表达式模式
+        # 关键财务指标的正则表达式模式 - 改进版
         self.patterns = {
             'revenue': [
-                r'营业收入[：:\s]*([0-9,]+\.?[0-9]*)',
-                r'主营业务收入[：:\s]*([0-9,]+\.?[0-9]*)',
-                r'营业总收入[：:\s]*([0-9,]+\.?[0-9]*)'
+                # 营业收入相关模式，考虑表格格式和单位
+                r'营业收入[：:\s]*([0-9,]+\.?[0-9]*)[万元]*',
+                r'主营业务收入[：:\s]*([0-9,]+\.?[0-9]*)[万元]*',
+                r'营业总收入[：:\s]*([0-9,]+\.?[0-9]*)[万元]*',
+                r'一、营业收入[：:\s]*([0-9,]+\.?[0-9]*)',
+                r'营业收入\s+([0-9,]+\.?[0-9]*)',
+                # 表格中的营业收入
+                r'营业收入\s+(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+                r'(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s+营业收入'
             ],
             'net_profit': [
-                r'净利润[：:\s]*([0-9,]+\.?[0-9]*)',
-                r'归属于母公司所有者的净利润[：:\s]*([0-9,]+\.?[0-9]*)',
-                r'归属于上市公司股东的净利润[：:\s]*([0-9,]+\.?[0-9]*)'
+                # 净利润相关模式
+                r'净利润[：:\s]*([0-9,]+\.?[0-9]*)[万元]*',
+                r'归属于母公司所有者的净利润[：:\s]*([0-9,]+\.?[0-9]*)[万元]*',
+                r'归属于上市公司股东的净利润[：:\s]*([0-9,]+\.?[0-9]*)[万元]*',
+                r'三、净利润[：:\s]*([0-9,]+\.?[0-9]*)',
+                r'净利润\s+([0-9,]+\.?[0-9]*)',
+                # 表格中的净利润
+                r'净利润\s+(\d{1,3}(?:,\d{3})*(?:\.\d+)?)',
+                r'(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s+净利润'
             ],
             'eps': [
-                r'基本每股收益[：:\s]*([0-9,]+\.?[0-9]*)',
-                r'每股收益[：:\s]*([0-9,]+\.?[0-9]*)',
-                r'基本每股收益\(元/股\)[：:\s]*([0-9,]+\.?[0-9]*)'
+                # 每股收益相关模式
+                r'基本每股收益[：:\s]*([0-9,]+\.?[0-9]*)[元]*',
+                r'每股收益[：:\s]*([0-9,]+\.?[0-9]*)[元]*',
+                r'基本每股收益\(元/股\)[：:\s]*([0-9,]+\.?[0-9]*)',
+                r'基本每股收益\s+([0-9,]+\.?[0-9]*)',
+                r'每股收益\s+(\d+\.?\d*)',
+                # 表格中的每股收益
+                r'基本每股收益\s+(\d+\.?\d*)',
+                r'(\d+\.?\d*)\s+基本每股收益'
             ]
         }
+        
+        # 报告日期的正则表达式模式
+        self.date_patterns = [
+            r'(\d{4})年(\d{1,2})月(\d{1,2})日',
+            r'(\d{4})-(\d{1,2})-(\d{1,2})',
+            r'(\d{4})年度报告',
+            r'(\d{4})年年度报告',
+            r'(\d{4})年第[一二三四]季度报告',
+            r'(\d{4})年半年度报告'
+        ]
     
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """
@@ -116,20 +144,61 @@ class FinancialReportParser:
         
         # 提取各项财务指标
         for key, patterns in self.patterns.items():
+            values_found = []
+            
             for pattern in patterns:
                 matches = re.findall(pattern, clean_text, re.IGNORECASE)
                 if matches:
-                    try:
-                        # 清理数字字符串，移除逗号
-                        value_str = matches[0].replace(',', '')
-                        value = float(value_str)
-                        financial_data[key] = value
-                        logger.info(f"提取到 {key}: {value}")
-                        break  # 找到第一个匹配就停止
-                    except ValueError:
-                        continue
+                    for match in matches:
+                        try:
+                            # 清理数字字符串，移除逗号
+                            value_str = str(match).replace(',', '').replace('万', '').replace('元', '').strip()
+                            if value_str and value_str.replace('.', '').isdigit():
+                                value = float(value_str)
+                                # 数据合理性检查
+                                if self._is_reasonable_value(key, value):
+                                    values_found.append(value)
+                        except (ValueError, TypeError):
+                            continue
+            
+            # 选择最合理的值
+            if values_found:
+                # 对于营业收入和净利润，选择较大的值（通常更准确）
+                if key in ['revenue', 'net_profit']:
+                    # 过滤掉明显过小的值
+                    filtered_values = [v for v in values_found if v > 1000]  # 大于1000万
+                    if filtered_values:
+                        financial_data[key] = max(filtered_values)
+                    else:
+                        financial_data[key] = max(values_found) if values_found else None
+                else:  # eps
+                    # 每股收益选择中位数
+                    values_found.sort()
+                    mid_idx = len(values_found) // 2
+                    financial_data[key] = values_found[mid_idx]
+                
+                logger.info(f"提取到 {key}: {financial_data[key]} (候选值: {values_found})")
         
         return financial_data
+    
+    def _is_reasonable_value(self, key: str, value: float) -> bool:
+        """
+        检查财务数据的合理性
+        
+        @param key: 数据类型
+        @param value: 数值
+        @return: 是否合理
+        """
+        if key == 'revenue':
+            # 营业收入应该在合理范围内（万元）
+            return 0 < value < 100000000  # 0到1万亿万元
+        elif key == 'net_profit':
+            # 净利润可以为负，但不应该过大
+            return -10000000 < value < 10000000  # -1千亿到1千亿万元
+        elif key == 'eps':
+            # 每股收益通常在合理范围内
+            return -100 < value < 1000  # -100到1000元
+        return True
     
     def parse_company_info(self, pdf_path: str, text: str) -> Tuple[str, str]:
         """
@@ -186,38 +255,72 @@ class FinancialReportParser:
         
         @param pdf_path: PDF 文件路径
         @param text: PDF 文本内容
-        @return: 报告日期 (YYYY-MM-DD 格式)
+        @return: 报告日期字符串 (YYYY-MM-DD)
         """
-        # 从文件路径中提取年份
-        year = ""
-        path_parts = pdf_path.split(os.sep)
-        for part in path_parts:
-            if re.match(r'^\d{4}$', part):  # 4位数字的年份
-                year = part
-                break
+        # 首先尝试从文件名中提取年份
+        filename = os.path.basename(pdf_path)
+        year_from_filename = None
         
-        # 从文本中提取具体日期
-        date_patterns = [
-            r'(\d{4})年(\d{1,2})月(\d{1,2})日',
-            r'(\d{4})-(\d{1,2})-(\d{1,2})',
-            r'(\d{4})/(\d{1,2})/(\d{1,2})'
-        ]
+        # 从文件名中提取年份
+        year_match = re.search(r'(\d{4})年', filename)
+        if year_match:
+            year_from_filename = year_match.group(1)
         
-        for pattern in date_patterns:
+        # 尝试从文件路径中提取年份
+        if not year_from_filename:
+            path_year_match = re.search(r'/(\d{4})/', pdf_path.replace('\\', '/'))
+            if path_year_match:
+                year_from_filename = path_year_match.group(1)
+        
+        # 从文本中查找具体日期
+        for pattern in self.date_patterns:
             matches = re.findall(pattern, text)
             if matches:
-                year_found, month, day = matches[0]
-                return f"{year_found}-{month.zfill(2)}-{day.zfill(2)}"
+                match = matches[0]
+                if isinstance(match, tuple):
+                    if len(match) >= 3:  # 完整日期
+                        year, month, day = match[0], match[1], match[2]
+                        try:
+                            # 验证日期的合理性
+                            date_obj = datetime.strptime(f"{year}-{month.zfill(2)}-{day.zfill(2)}", "%Y-%m-%d")
+                            return date_obj.strftime("%Y-%m-%d")
+                        except ValueError:
+                            continue
+                    elif len(match) == 1:  # 只有年份
+                        year = match[0]
+                        # 如果是年度报告，默认使用12月31日
+                        if '年度报告' in text or '年报' in text:
+                            return f"{year}-12-31"
+                        # 如果是半年度报告，使用6月30日
+                        elif '半年度报告' in text or '中报' in text:
+                            return f"{year}-06-30"
+                        # 季度报告
+                        elif '第一季度' in text or '一季报' in text:
+                            return f"{year}-03-31"
+                        elif '第三季度' in text or '三季报' in text:
+                            return f"{year}-09-30"
+                        else:
+                            return f"{year}-12-31"
+                else:  # 单个匹配
+                    year = match
+                    return f"{year}-12-31"
         
-        # 如果没有找到具体日期，使用年份构造默认日期
-        if year:
-            # 判断是年报还是半年报
-            if '半年' in text or '中报' in text:
-                return f"{year}-06-30"  # 半年报默认6月30日
+        # 如果从文本中找不到，使用文件名中的年份
+        if year_from_filename:
+            # 根据文件名判断报告类型
+            if '年度报告' in filename or '年报' in filename:
+                return f"{year_from_filename}-12-31"
+            elif '半年度报告' in filename or '中报' in filename:
+                return f"{year_from_filename}-06-30"
+            elif '第一季度' in filename or '一季报' in filename:
+                return f"{year_from_filename}-03-31"
+            elif '第三季度' in filename or '三季报' in filename:
+                return f"{year_from_filename}-09-30"
             else:
-                return f"{year}-12-31"  # 年报默认12月31日
+                return f"{year_from_filename}-12-31"
         
-        # 如果都没有找到，返回当前日期
+        # 默认返回当前日期
+        logger.warning(f"无法解析报告日期，使用当前日期：{pdf_path}")
         return datetime.now().strftime("%Y-%m-%d")
     
     def parse_single_pdf(self, pdf_path: str) -> Optional[Dict]:
