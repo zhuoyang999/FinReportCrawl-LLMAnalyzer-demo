@@ -12,6 +12,14 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import logging
 from typing import Optional, List, Dict
+import os
+import sys
+
+# 添加项目根目录到路径
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
+# 导入统一的数据库配置
+from config.database import DatabaseConfig
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -57,26 +65,14 @@ class DatabaseManager:
     3. 数据存储和查询
     """
     
-    def __init__(self, 
-                 host: str = 'localhost',
-                 port: int = 3306,
-                 username: str = 'root',
-                 password: str = '123456',
-                 database: str = 'oytonghuashun'):
+    def __init__(self, config: Optional[DatabaseConfig] = None):
         """
         初始化数据库管理器
         
-        @param host: 数据库主机地址
-        @param port: 数据库端口
-        @param username: 数据库用户名
-        @param password: 数据库密码
-        @param database: 数据库名称
+        Args:
+            config: 数据库配置对象，如果为None则使用默认配置
         """
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-        self.database = database
+        self.config = config or DatabaseConfig()
         
         # 数据库连接引擎
         self.engine = None
@@ -90,26 +86,24 @@ class DatabaseManager:
         如果数据库不存在则创建数据库
         """
         try:
-            # 连接到 MySQL 服务器（不指定数据库）
-            connection = pymysql.connect(
-                host=self.host,
-                port=self.port,
-                user=self.username,
-                password=self.password,
-                charset='utf8mb4'
-            )
+            # 连接到MySQL服务器（不指定数据库）
+            temp_config = self.config.get_pymysql_config()
+            temp_config.pop('database', None)  # 移除数据库名
+            
+            connection = pymysql.connect(**temp_config)
             
             with connection.cursor() as cursor:
                 # 检查数据库是否存在
-                cursor.execute(f"SHOW DATABASES LIKE '{self.database}'")
+                database_name = self.config.get_database_name()
+                cursor.execute(f"SHOW DATABASES LIKE '{database_name}'")
                 result = cursor.fetchone()
                 
                 if not result:
                     # 创建数据库
-                    cursor.execute(f"CREATE DATABASE {self.database} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-                    logger.info(f"数据库 '{self.database}' 创建成功")
+                    cursor.execute(f"CREATE DATABASE {database_name} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+                    logger.info(f"数据库 '{database_name}' 创建成功")
                 else:
-                    logger.info(f"数据库 '{self.database}' 已存在")
+                    logger.info(f"数据库 '{database_name}' 已存在")
             
             connection.close()
             
@@ -126,9 +120,8 @@ class DatabaseManager:
             self._create_database_if_not_exists()
             
             # 创建数据库连接引擎
-            connection_string = f"mysql+pymysql://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}?charset=utf8mb4"
             self.engine = create_engine(
-                connection_string,
+                self.config.get_connection_string(),
                 echo=False,  # 设置为 True 可以看到 SQL 语句
                 pool_recycle=3600,  # 连接池回收时间
                 pool_pre_ping=True  # 连接前检查连接是否有效

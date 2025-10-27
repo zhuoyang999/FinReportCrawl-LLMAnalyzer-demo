@@ -1,0 +1,4 @@
+pandas
+PyMuPDF
+chromadb
+sentence-transformers
