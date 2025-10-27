@@ -60,14 +60,22 @@ export default defineComponent({
 
     const fetchReports = async () => {
       try {
-        const response = await axios.get('http://127.0.0.1:8000/api/financial-reports', {
+        const response = await axios.get('/api/financial-reports/query', {
           params: {
             page: page.value,
-            page_size: pageSize.value,
+            size: pageSize.value,
           },
         });
-        reports.value = response.data.data;
-        totalPages.value = response.data.pagination.total_pages;
+        
+        const data = response.data;
+        
+        // 适配Java后端的响应格式
+        if (data.code === 200) {
+          reports.value = data.data.items;
+          totalPages.value = Math.ceil(data.data.total / pageSize.value);
+        } else {
+          throw new Error(data.message || '查询失败');
+        }
       } catch (error) {
         console.error('获取财务报告失败:', error);
       }

@@ -222,7 +222,18 @@ async function searchReports(page = 1) {
     pythonParams.append('page', page.toString())
     pythonParams.append('page_size', pagination.value.size.toString())
     
-    const res = await fetch(`/api/financial-reports?${pythonParams}`)
+    // 构建Java后端的查询参数
+    const javaParams = new URLSearchParams()
+    
+    if (queryForm.value.stockCode) javaParams.append('stockCode', queryForm.value.stockCode)
+    if (queryForm.value.companyName) javaParams.append('companyName', queryForm.value.companyName)
+    if (queryForm.value.startYear) javaParams.append('startYear', queryForm.value.startYear.toString())
+    if (queryForm.value.endYear) javaParams.append('endYear', queryForm.value.endYear.toString())
+    
+    javaParams.append('page', page.toString())
+    javaParams.append('size', pagination.value.size.toString())
+    
+    const res = await fetch(`/api/financial-reports/query?${javaParams}`)
     console.log("Fetch response:", res); // 添加日志：打印原始响应对象
     
     let data: any = null;
@@ -238,32 +249,36 @@ async function searchReports(page = 1) {
 
     if (!res.ok) {
       console.log("Backend returned non-OK response, data:", data); // 添加日志：打印后端返回的非成功响应数据
-      throw new Error(data?.detail || res.statusText || "服务器错误，请检查后端日志。");
+      throw new Error(data?.message || res.statusText || "服务器错误，请检查后端日志。");
     }
     
-    // 适配Python后端的响应格式
-    const reportData = data.data || []
-    const paginationData = data.pagination || {}
-    
-    // 转换数据格式以适配前端显示
-    reports.value = reportData.map((item: any) => ({
-      id: item.id,
-      stockCode: item.stock_code || '',
-      companyName: item.company_name || '',
-      reportType: 'annual', // 暂时固定为年报，因为Python后端数据中没有这个字段
-      year: item.report_date ? new Date(item.report_date).getFullYear() : 0,
-      reportPeriod: item.report_date || '',
-      processedAt: item.crawl_time || '',
-      status: 'success' // 暂时固定为成功状态
-    }))
-    
-    pagination.value = {
-      page: paginationData.page || 1,
-      size: paginationData.page_size || 10,
-      total: paginationData.total || 0,
-      totalPages: paginationData.total_pages || 0,
-      hasNext: (paginationData.page || 1) < (paginationData.total_pages || 0),
-      hasPrevious: (paginationData.page || 1) > 1
+    // 适配Java后端的响应格式
+    if (data.code === 200) {
+      const reportData = data.data?.items || []
+      const paginationData = data.data || {}
+      
+      // 转换数据格式以适配前端显示
+      reports.value = reportData.map((item: any) => ({
+        id: item.id,
+        stockCode: item.stock_code || '',
+        companyName: item.company_name || '',
+        reportType: 'annual', // 暂时固定为年报，因为后端数据中没有这个字段
+        year: item.report_date ? new Date(item.report_date).getFullYear() : 0,
+        reportPeriod: item.report_date || '',
+        processedAt: item.crawl_time || '',
+        status: 'success' // 暂时固定为成功状态
+      }))
+      
+      pagination.value = {
+        page: paginationData.page || 1,
+        size: paginationData.size || 10,
+        total: paginationData.total || 0,
+        totalPages: paginationData.totalPages || 0,
+        hasNext: paginationData.hasNext || false,
+        hasPrevious: paginationData.hasPrevious || false
+      }
+    } else {
+      throw new Error(data.message || '查询失败')
     }
     searched.value = true
   } catch (e: any) {

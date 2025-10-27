@@ -4,7 +4,9 @@ import com.tonghuashun.dto.FinancialReportDTO;
 import com.tonghuashun.dto.CrawlRequestDTO;
 import com.tonghuashun.dto.QueryRequestDTO;
 import com.tonghuashun.common.PageResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
@@ -26,26 +28,13 @@ import java.util.Map;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class PythonServiceClient {
     
+    @Qualifier("pythonWebClient")
     private final WebClient webClient;
     
-    /**
-     * 构造函数，初始化 WebClient
-     * 
-     * @param pythonServiceBaseUrl Python 服务基础URL
-     * @param timeout 请求超时时间（毫秒）
-     */
-    public PythonServiceClient(
-            @Value("${python-service.base-url}") String pythonServiceBaseUrl,
-            @Value("${python-service.timeout:30000}") Long timeout) {
-        
-        this.webClient = WebClient.builder()
-                .baseUrl(pythonServiceBaseUrl)
-                .build();
-        
-        log.info("Python服务客户端初始化完成，基础URL: {}, 超时时间: {}ms", pythonServiceBaseUrl, timeout);
-    }
+
     
     /**
      * 调用爬取接口
@@ -271,5 +260,38 @@ public class PythonServiceClient {
         // 这里假设Python服务返回的是ISO格式的字符串
         
         return dto;
+    }
+
+    /**
+     * 解析PDF文件
+     * 
+     * @param filePath PDF文件路径
+     * @return 解析结果
+     */
+    public Map<String, Object> parsePdf(String filePath) {
+        log.info("开始解析PDF文件: {}", filePath);
+        
+        try {
+            Map<String, String> requestBody = new HashMap<>();
+            requestBody.put("file_path", filePath);
+            
+            Map<String, Object> response = webClient.post()
+                    .uri("/parse-pdf")  // 注意：这个端点没有/api前缀
+                    .bodyValue(requestBody)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .timeout(Duration.ofMinutes(5)) // PDF解析可能需要更长时间
+                    .block();
+            
+            log.info("PDF解析完成: {}", filePath);
+            return response;
+            
+        } catch (WebClientResponseException e) {
+            log.error("PDF解析失败，HTTP状态码: {}, 响应体: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("PDF解析失败: " + e.getMessage(), e);
+        } catch (Exception e) {
+            log.error("PDF解析过程中发生异常", e);
+            throw new RuntimeException("PDF解析失败: " + e.getMessage(), e);
+        }
     }
 }

@@ -92,6 +92,9 @@ class ChatRequest(BaseModel):
     report_id: str = Field(..., description="报告的唯一ID")
     query: str = Field(..., description="用户提出的问题")
 
+class ParsePdfRequest(BaseModel):
+    file_path: str = Field(..., description="需要解析的PDF文件路径")
+
 # ==================== 核心业务逻辑 ====================
 
 def generate_summary_from_text(text: str) -> Dict[str, Any]:
@@ -577,7 +580,7 @@ async def smart_chat(req: ChatRequest):
         raise HTTPException(status_code=500, detail=f"智能问答过程中发生错误: {str(e)}")
 
 
-@app.get("/api/reports", response_model=List[FinancialReportResponse])
+@app.get("/api/reports")
 def list_reports_api(
     stock_code: Optional[str] = Query(None),
     report_year: Optional[int] = Query(None),
@@ -610,6 +613,58 @@ def get_report_details_api(report_id: int):
     except Exception as e:
         logger.error(f"详情查询失败: {e}")
         return {"success": False, "error": str(e)}
+
+@app.post("/parse-pdf")
+async def parse_pdf(req: ParsePdfRequest):
+    """
+    解析PDF文件，提取基本信息和全文内容
+    专门为Java后端提供的PDF解析接口
+    """
+    file_path = req.file_path
+    
+    # 规范化路径，处理路径分隔符和编码问题
+    file_path = os.path.normpath(file_path.replace('\\\\', '/'))
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_path}")
+    
+    try:
+        # 使用PDF解析器提取信息
+        parser = FinancialReportParser()
+        
+        # 解析PDF获取基本信息
+        report_data = parser.parse_single_pdf(file_path)
+        if not report_data:
+            raise HTTPException(status_code=500, detail="PDF解析失败，无法提取基本信息")
+        
+        # 提取全文内容
+        full_text = parser.extract_text_from_pdf(file_path)
+        if not full_text:
+            raise HTTPException(status_code=500, detail="PDF解析失败，无法提取文本内容")
+        
+        # 返回解析结果
+        result = {
+            "success": True,
+            "data": {
+                "company_name": report_data.get("company_name", ""),
+                "stock_code": report_data.get("stock_code", ""),
+                "report_date": report_data.get("report_date", ""),
+                "revenue": report_data.get("revenue"),
+                "net_profit": report_data.get("net_profit"),
+                "eps": report_data.get("eps"),
+                "full_text": full_text,
+                "text_length": len(full_text),
+                "pdf_path": file_path,
+                "parse_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        }
+        
+        logger.info(f"PDF解析成功: {file_path}, 公司: {report_data.get('company_name', 'Unknown')}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"PDF解析失败: {file_path}, 错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"PDF解析失败: {str(e)}")
 
 
 if __name__ == "__main__":

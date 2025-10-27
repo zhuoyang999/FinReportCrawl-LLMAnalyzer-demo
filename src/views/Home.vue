@@ -136,8 +136,20 @@ const statsDisplay = computed(() => ({
 
 const fetchRecentReports = async () => {
   try {
-    const response = await axios.get('http://127.0.0.1:8000/api/financial-reports?page=1&page_size=10');
-    recentReports.value = response.data.data;
+    const response = await axios.get('/api/financial-reports/query?page=1&size=10');
+    // 适配Java后端的响应格式
+    if (response.data.code === 200) {
+      const reportData = response.data.data.items || [];
+      recentReports.value = reportData.map((item: any) => ({
+        id: item.id,
+        company_name: item.company_name || '',
+        stock_code: item.stock_code || '',
+        report_type: '年度报告',
+        crawl_time: item.crawl_time || ''
+      }));
+    } else {
+      throw new Error(response.data.message || '获取数据失败');
+    }
   } catch (error) {
     console.error('获取最近报告失败:', error);
     // 添加一些模拟数据用于展示
@@ -150,8 +162,13 @@ const fetchRecentReports = async () => {
 
 const fetchStats = async () => {
   try {
-    const response = await axios.get('http://127.0.0.1:8000/api/stats'); 
-    stats.value = response.data;
+    const response = await axios.get('/api/financial-reports/stats');
+    // 适配Java后端的响应格式
+    if (response.data.code === 200) {
+      stats.value = response.data.data;
+    } else {
+      throw new Error(response.data.message || '获取统计数据失败');
+    }
   } catch (error) {
     console.error('获取统计数据失败:', error);
     // 使用假数据以进行UI展示
