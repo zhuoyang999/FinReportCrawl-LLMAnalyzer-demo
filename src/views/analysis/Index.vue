@@ -2,71 +2,8 @@
   <div class="page">
     <h2>财报分析</h2>
     
-    <!-- 选项卡 -->
-    <div class="tabs">
-      <button 
-        :class="['tab', { active: activeTab === 'files' }]" 
-        @click="switchTab('files')"
-      >
-        PDF文件列表
-      </button>
-      <button 
-        :class="['tab', { active: activeTab === 'reports' }]" 
-        @click="switchTab('reports')"
-      >
-        已处理报告
-      </button>
-    </div>
-
-    <!-- PDF文件列表 -->
-    <div v-if="activeTab === 'files'" class="pdf-files-section">
-      <div class="section-header">
-        <h3>已爬取的PDF文件</h3>
-        <button @click="loadPdfFiles" :disabled="loadingFiles" class="btn-primary">
-          {{ loadingFiles ? '加载中...' : '刷新列表' }}
-        </button>
-      </div>
-      
-      <div v-if="pdfFiles.length > 0" class="pdf-files-grid">
-        <div 
-          v-for="file in pdfFiles" 
-          :key="file.id" 
-          class="pdf-file-card"
-          :class="{ analyzing: file.analyzing }"
-        >
-          <div class="file-info">
-            <div class="file-header">
-              <h4>{{ file.company_name }}</h4>
-              <span class="stock-code">{{ file.stock_code }}</span>
-            </div>
-            <div class="file-details">
-              <span class="year">{{ file.year }}年</span>
-              <span class="report-type">{{ getReportTypeName(file.report_type) }}</span>
-              <span class="file-size">{{ formatFileSize(file.file_size) }}</span>
-            </div>
-            <div class="file-name">{{ file.file_name }}</div>
-            <div class="file-time">{{ formatDate(file.modified_time) }}</div>
-          </div>
-          <div class="file-actions">
-            <button 
-              @click="analyzePdfFile(file)" 
-              :disabled="file.analyzing"
-              class="btn-analyze"
-            >
-              {{ file.analyzing ? '分析中...' : '分析' }}
-            </button>
-          </div>
-        </div>
-      </div>
-      
-      <div v-else-if="!loadingFiles" class="empty-state">
-        <p>暂无PDF文件，请先进行财报爬取</p>
-      </div>
-    </div>
-
-    <!-- 已处理报告 -->
-    <div v-if="activeTab === 'reports'">
-      <!-- 查询表单 -->
+    <!-- 查询表单 -->
+    <div class="query-form">
       <div class="form-row">
         <label>
           股票代码
@@ -197,7 +134,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
 
 // 类型定义
 interface FinancialReport {
@@ -209,20 +145,6 @@ interface FinancialReport {
   reportPeriod?: string
   processedAt: string
   status: string
-}
-
-interface PdfFile {
-  id: string
-  stock_code: string
-  company_name: string
-  year: string
-  report_type: string
-  file_name: string
-  file_path: string
-  file_size: number
-  modified_time: string
-  relative_path: string
-  analyzing?: boolean
 }
 
 interface QueryForm {
@@ -249,13 +171,10 @@ interface Stats {
 }
 
 // 响应式数据
-const activeTab = ref('files')
 const loading = ref(false)
-const loadingFiles = ref(false)
 const searched = ref(false)
 const error = ref('')
 const reports = ref<FinancialReport[]>([])
-const pdfFiles = ref<PdfFile[]>([])
 const stats = ref<Stats | null>(null)
 
 const queryForm = ref<QueryForm>({
@@ -419,87 +338,9 @@ function formatDate(dateStr: string): string {
   }
 }
 
-// PDF文件相关方法
-async function loadPdfFiles() {
-  loadingFiles.value = true
-  error.value = ''
-  
-  try {
-    const res = await fetch('/api/pdf-files')
-    const data = await res.json()
-    
-    if (!res.ok) {
-      throw new Error(data?.detail || res.statusText || "加载PDF文件列表失败")
-    }
-    
-    pdfFiles.value = data.data || []
-  } catch (e: any) {
-    console.error("加载PDF文件列表失败:", e)
-    error.value = e?.message || String(e)
-  } finally {
-    loadingFiles.value = false
-  }
-}
-
-async function analyzePdfFile(file: PdfFile) {
-  try {
-    // 显示加载状态
-    const loadingMessage = ElMessage.loading('正在启动PDF分析任务...')
-    
-    const requestBody = {
-      file_path: file.file_path,
-      stock_code: file.stock_code,
-      company_name: file.company_name,
-      year: file.year,
-      report_type: file.report_type
-    }
-    
-    const res = await fetch('/api/analyze-pdf-by-path', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
-    })
-    
-    const data = await res.json()
-    loadingMessage.close()
-    
-    if (!res.ok) {
-      throw new Error(data?.detail || res.statusText || "启动分析任务失败")
-    }
-    
-    ElMessage.success(`分析任务已启动，任务ID: ${data.task_id}`)
-    
-    // 可以选择切换到已处理报告选项卡
-    // activeTab.value = 'processed'
-    
-  } catch (e: any) {
-    console.error("分析PDF文件失败:", e)
-    ElMessage.error(e?.message || "分析PDF文件失败")
-  }
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
-function switchTab(tab: string) {
-  activeTab.value = tab
-  if (tab === 'files' && pdfFiles.value.length === 0) {
-    loadPdfFiles()
-  }
-}
-
 // 生命周期
 onMounted(() => {
   loadStats()
-  // 默认加载PDF文件列表
-  loadPdfFiles()
 })
 </script>
 
@@ -754,130 +595,5 @@ input:focus, select:focus {
   padding: 12px;
   border-radius: 6px;
   margin-top: 16px;
-}
-
-/* 选项卡样式 */
-.tabs {
-  display: flex;
-  margin-bottom: 24px;
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.tab {
-  padding: 12px 24px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 16px;
-  color: #666;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-}
-
-.tab:hover {
-  color: #4f79ff;
-}
-
-.tab.active {
-  color: #4f79ff;
-  border-bottom-color: #4f79ff;
-  font-weight: 500;
-}
-
-/* PDF文件列表样式 */
-.pdf-files-section {
-  margin-bottom: 24px;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.pdf-files-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 16px;
-}
-
-.pdf-file-card {
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 16px;
-  background: white;
-  transition: all 0.2s;
-}
-
-.pdf-file-card:hover {
-  border-color: #4f79ff;
-  box-shadow: 0 2px 8px rgba(79, 121, 255, 0.1);
-}
-
-.file-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 12px;
-}
-
-.company-info h4 {
-  margin: 0 0 4px;
-  font-size: 16px;
-  color: #333;
-}
-
-.company-info .stock-code {
-  font-size: 14px;
-  color: #666;
-}
-
-.file-meta {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 12px;
-  font-size: 14px;
-}
-
-.meta-item {
-  display: flex;
-  justify-content: space-between;
-}
-
-.meta-label {
-  color: #666;
-}
-
-.meta-value {
-  color: #333;
-  font-weight: 500;
-}
-
-.file-details {
-  font-size: 12px;
-  color: #888;
-  margin-bottom: 12px;
-}
-
-.file-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.btn-analyze {
-  padding: 8px 16px;
-  background: #4f79ff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-}
-
-.btn-analyze:hover {
-  background: #3d63e6;
 }
 </style>

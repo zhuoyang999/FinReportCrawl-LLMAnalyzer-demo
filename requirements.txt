@@ -8,7 +8,6 @@ requests>=2.31.0
 pdfplumber>=0.9.0
 PyPDF2>=3.0.1
 pdfminer.six>=20221105
-PyMuPDF>=1.23.0
 
 # 数据处理库
 pandas>=2.0.0
