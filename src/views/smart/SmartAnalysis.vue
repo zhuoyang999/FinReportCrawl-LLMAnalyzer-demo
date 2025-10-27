@@ -561,76 +561,109 @@ export default defineComponent({
       scrollToBottom();
       
       try {
+        // 模拟流式输出（前端纯模拟，不依赖后端）
         if (mockMode.value) {
           const summary = mockData.value.summary;
           const metrics = (mockData.value.indicators || []).slice(0, 3)
             .map((i: any) => `${i.name}:${i.value}（${i.description}）`)
             .join('；');
+          const fullText = `你好：${summary}。核心指标：${metrics}。`;
           const aiMessage: ChatMessage = {
             id: Date.now() + 1,
             type: 'ai',
-            text: `这是回答 1：${summary}。核心指标：${metrics}。`,
+            text: '',
             timestamp: new Date()
           };
           chatHistory.value.push(aiMessage);
+          await nextTick();
+          
+          await simulateStreaming(aiMessage, fullText);
+          
           isTyping.value = false;
           await nextTick();
           scrollToBottom();
           saveToLocalStorage();
           return;
         }
-        // Call the chat API
-        const response = await fetch('/api/smart/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            question: question,
-            sessionId: 'session_' + Date.now(), // 可以使用更好的会话管理
-            fileId: 'current_file_id' // 需要保存当前分析的文件ID
-          })
-        });
         
-        if (!response.ok) {
-          throw new Error('聊天请求失败');
-        }
-        
-        const data = await response.json();
-        if (data.code !== 200) {
-          throw new Error(data.message || '聊天失败');
-        }
+        // 连接后端SSE接口，模仿大模型流式输出
+        const fileId = 'current';
+        const es = new EventSource(`/api/smart/chat?fileId=${encodeURIComponent(fileId)}&question=${encodeURIComponent(question)}`);
         
         const aiMessage: ChatMessage = {
           id: Date.now() + 1,
           type: 'ai',
-          text: data.data.answer || '抱歉，我无法回答这个问题。',
+          text: '',
           timestamp: new Date()
         };
-        
         chatHistory.value.push(aiMessage);
-        isTyping.value = false;
         await nextTick();
-        scrollToBottom();
-        saveToLocalStorage();
+        
+        es.onmessage = async (evt) => {
+          const data = (evt && evt.data) ? String(evt.data) : '';
+          // 结束标记
+          if (data.trim() === '[DONE]') {
+            es.close();
+            isTyping.value = false;
+            saveToLocalStorage();
+            await nextTick();
+            scrollToBottom();
+            return;
+          }
+          const cleaned = data.startsWith('data:') ? data.replace(/^data:\s*/, '') : data;
+          aiMessage.text += cleaned;
+          await nextTick();
+          scrollToBottom();
+        };
+        
+        es.onerror = async () => {
+          try { es.close(); } catch {}
+          isTyping.value = false;
+          const fallback: ChatMessage = {
+            id: Date.now() + 2,
+            type: 'ai',
+            text: '抱歉，流式服务暂不可用，稍后再试。',
+            timestamp: new Date()
+          };
+          chatHistory.value.push(fallback);
+          await nextTick();
+          scrollToBottom();
+          saveToLocalStorage();
+        };
         
       } catch (error: any) {
         console.error('Chat error:', error);
-        
-        // Fallback to mock response on error
+        isTyping.value = false;
         const aiMessage: ChatMessage = {
           id: Date.now() + 1,
           type: 'ai',
           text: '抱歉，服务暂时不可用。请稍后再试。',
           timestamp: new Date()
         };
-        
         chatHistory.value.push(aiMessage);
-        isTyping.value = false;
         await nextTick();
         scrollToBottom();
         saveToLocalStorage();
       }
+    };
+
+    // 前端模拟流式输出：逐字/逐句追加文本
+    const simulateStreaming = async (msg: ChatMessage, full: string) => {
+      const chunks = splitToChunks(full, 8); // 每段约8字符
+      for (const chunk of chunks) {
+        msg.text += chunk;
+        await nextTick();
+        scrollToBottom();
+        await new Promise(r => setTimeout(r, 120));
+      }
+    };
+
+    const splitToChunks = (text: string, size = 8): string[] => {
+      const arr: string[] = [];
+      for (let i = 0; i < text.length; i += size) {
+        arr.push(text.slice(i, i + size));
+      }
+      return arr;
     };
 
     const clearChat = () => {
